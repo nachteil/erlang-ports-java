@@ -39,7 +39,7 @@ handle_cast(_, _) ->
   erlang:error(not_implemented).
 
 handle_info(Info, _) ->
-  io:format("Got info to handle: ~p~n", [Info]).
+  io:format("javaProxyServer: Got info to handle: ~p~n", [Info]).
 
 terminate(_, _) ->
   ok.

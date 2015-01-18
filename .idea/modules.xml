@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/erl-2-java.iml" filepath="$PROJECT_DIR$/erl-2-java.iml" />
+      <module fileurl="file://$PROJECT_DIR$/java-2-erl/java-2-erl.iml" filepath="$PROJECT_DIR$/java-2-erl/java-2-erl.iml" />
     </modules>
   </component>
 </project>

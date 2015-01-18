@@ -17,7 +17,7 @@ mkdir ./application/priv
 mkdir ./application/bin
 
 
-JAVA_PROJECT_DIR="/home/yorg/Projekty/Java/java-2-erl"
+JAVA_PROJECT_DIR="java-2-erl"
 CURRENT_DIR=`pwd`
 OUTPUT_DIR=`readlink -f ./application`
 
