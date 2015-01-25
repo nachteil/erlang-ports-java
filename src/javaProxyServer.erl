@@ -9,17 +9,16 @@
 -module(javaProxyServer).
 -author("yorg").
 
--behaviour(gen_server).
-
 %% API
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, await_reply_line/1, start_link/1, writeToEcho/1, line_loop/1, getPort/0, stopMe/0, changeCode/1]).
+-export([init/1, handle_info/2, terminate/2, code_change/3, start_link/1, writeToEcho/1, getPort/0, stopMe/0, loop/2, stop_java/1]).
 
 writeToEcho(Message) ->
   %%gen_server:cast(javaProxyServer, {sendToEcho, Message}),
-  gen_server:cast(erlangPort, {echo, Message}).
+  erlangPort ! {echo, Message},
+  message_sent.
 
 start_link(CommunicationType) ->
-  gen_server:start_link({local, javaProxyServer}, javaProxyServer, CommunicationType, []).
+  spawn(javaProxyServer, init, [CommunicationType]).
 
 init(CommunicationType) ->
   case os:find_executable("java") of
@@ -37,119 +36,70 @@ init(CommunicationType) ->
         {args, ["-jar", "priv/java-2-erl.jar", CommunicationTypeArgument]}],
       Port = erlang:open_port(PortName, PortSettings),
       register(javka, Port),
-      case CommunicationType of
-        line -> await_reply_line(Port) ;
-        packet -> await_reply_packet(Port)
-      end
+      loop(CommunicationType, Port)
   end.
 
 getPort()->
-  X = gen_server:call(javaProxyServer,{getPort}).
+  erlangPort ! {get_port, self()}.
 
 stopMe() ->
   gen_server:cast(javaProxyServer,stop).
 
-changeCode(Name) ->
-  ok = gen_server:call(javaProxyServer,{change,Name}).
-
-handle_call({getPort}, _From, Value) ->
-  {noreply, Value, Value};
-
-handle_call({change,Name},_From,Value) ->
-  io:format("sending msg to port ~p~n",[Value]),
-  Value  ! {self(), {command, "{msg,{change}}."}},
-  {reply, ok,Value}.
-
-handle_cast(ready, Value) ->
-  io:format("Java is ready for work!"),
-  {noreply,Value};
-
-handle_cast({wrong, What}, Value) ->
-  io:format("Java recevied wrong data ~p~n",[What]),{noreply,Value};
-
-handle_cast(notready, Value) ->
-  {stop, "Java is not responding properly", []};
-
-handle_cast({echo, Mesg}, Value) ->
-  port_command(Value, Mesg) ;
-
-handle_cast(stop,Value)->
-  Value ! {command,"stop."},
-  {stop, normal, shutdown_ok, Value}.
+stop_java(Port) ->
+  Port ! {command,"stop."},
+  {stop, "user requested java termination~n"}.
 
 handle_info(Info, Port) ->
-  io:format("I'm handling info: ~p~n", [Info]),
   case Info of
+
+%%  Communication from erlang
+
+    {get_port, Sender} ->
+      Sender ! self(),
+      {continue, Port} ;
+
+    {echo, Message} ->
+      port_command(javka, string:concat(Message, "\n")),
+      {continue, Port} ;
+
+%%  Communication from Java
+
     {Port, {data, {eol, IncomingMessage}}}->
       {ok, Tokens, _} = erl_scan:string(IncomingMessage),   %%Parsing msg to tuple {msg,MSG}
       {ok, Expr} = erl_parse:parse_term(Tokens),
       case Expr of
         {msg,Msg} ->   %io:format("javaProxyServer: got Message from java: ~p~n", [Msg]),
           case Msg of
-            {ok,ready}    -> gen_server:cast(javaProxyServer, ready);
-            {ok,Z}        -> gen_server:cast(javaProxyServer, Z);
-            {wrong,What}  -> gen_server:cast(javaProxyServer, {wrong, What});
-            _             -> gen_server:cast(javaProxyServer, notready)
-          end;
+            {ok,ready}    -> io:format("Java is ready for work!~n") ;
+            {ok,Z}        -> io:format("javaProxyServer: received message:~n~p~n", [Z]);
+            {wrong,What}  -> io:format("Java recevied wrong data ~p~n",[What])
+          end,
+          {continue, Port};
         U ->
           io:format("javaProxyServer: got uknown format message from java: ~p~n", [U]),
-          gen_server:cast(javaProxyServer,notready)
+          {continue, Port}
       end;
-    _ -> true
-  end,
-  {noreply, Port}.
+    Anything ->
+      io:format("Unrecognized incoming message:~p~n", [Anything]),
+      {continue, Port}
+  end.
 
 terminate(_, Value) ->
-  io:format("Stoping server."),
+  io:format("Stoping server.~n"),
   port_close(Value),
   ok.
 
 code_change(_, _, _) ->
   erlang:error(not_implemented).
 
-line_loop(Port) ->
+loop(line, Port) ->
   receive
-    {Port, {data, {eol, Message}}} ->
-      io:format("Line mesg: ~p~n", [Message]),
-      line_loop(Port),
-      {ok, Port} ;
-
     Info ->
       case handle_info(Info, Port) of
-        {noreply, NewState} ->
-          line_loop(NewState);
-        {stop, Reason, _NewState} ->
-          {stop, Reason}
+        {stop, Reason}  -> {stop, Reason} ;
+        {continue, Port} -> loop(line, Port)
       end
-  end.
+  end ;
 
-await_reply_line(Port) ->
-  receive
-    {Port, {data, {eol, "No elo"}}} ->
-      io:format("javaProxyServer: Java node confirmed ready~n"),
-      io:format("~p~n", [erlang:whereis(javka)]),
-      {ok, Port} ;
-
-    Info ->
-      case handle_info(Info, Port) of
-        {noreply, NewState} ->
-          {ok, NewState} ;
-        {stop, Reason, _NewState} ->
-          {stop, Reason}
-      end
-  end.
-
-await_reply_packet(Port) ->
-  receive
-    {Port, {data, {eol, "No elo"}}} ->
-      io:format("javaProxyServer: Java node confirmed ready~n"),
-      {ok, Port} ;
-
-    Info ->
-      case handle_info(Info, Port) of
-        {noreply, NewState} ->
-          await_reply_packet(NewState);
-        {stop, Reason, _NewState} ->
-          {stop, Reason}
-      end
-  end.
+loop(packet, _) ->
+  erlang:error(not_implemented).

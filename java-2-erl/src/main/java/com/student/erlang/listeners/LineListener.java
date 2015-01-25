@@ -1,6 +1,7 @@
 package com.student.erlang.listeners;
 
 import java.io.BufferedReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
@@ -16,6 +17,11 @@ public class LineListener implements IListener{
         try {
             return reader.readLine();
         } catch (IOException e) {
+            try {
+                new FileWriter("raport.ter").write("error: " + e);
+            } catch (IOException e1) {
+
+            }
         }
         return "";
     }

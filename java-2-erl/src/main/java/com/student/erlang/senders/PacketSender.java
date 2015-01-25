@@ -11,7 +11,17 @@ public class PacketSender implements ISender {
     OutputStream writer = System.out;
 
     @Override
-    public void sendMessage(String message) {
+    public void sendString(String string) {
+
+    }
+
+    @Override
+    public void sendStructure(String structure) {
+
+    }
+
+    @Override
+    public void sendAtom(String message) {
         byte [] messageBytes = message.getBytes();
         int msgLen = messageBytes.length;
         try {

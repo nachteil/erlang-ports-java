@@ -9,7 +9,6 @@ import com.student.erlang.senders.PacketSender;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.util.Random;
 
 /**
  * Created by yorg on 18.01.15.
@@ -21,7 +20,7 @@ public class App {
         IListener listener = null;
         ISender sender = null;
 
-        FileWriter writer = new FileWriter("kek.lol");
+        FileWriter writer = new FileWriter("msg.log");
 
         switch (args[0]) {
             case "line":
@@ -36,28 +35,16 @@ public class App {
                 System.exit(-1);
         }
 
-        sender.sendMessage("No elo");
-
-        System.out.println("From sys out");
-        sender.sendMessage("From sender");
-
-        Random random = new Random();
-        int count = 0;
-
-//        while(true) {
-//            Thread.sleep(random.nextInt(2000) + 1000);
-//            String msg = "Message from Java: hello " + ++count;
-//            sender.sendMessage(msg);
-//        }
+        sender.sendAtom("ready");
 
         while(true) {
             String msg = listener.listen();
+            sender.sendString(msg);
+
             writer.write(msg);
             writer.write("\n");
             writer.flush();
-            sender.sendMessage(msg);
         }
-
     }
 
 }

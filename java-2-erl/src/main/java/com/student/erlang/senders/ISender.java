@@ -5,6 +5,10 @@ package com.student.erlang.senders;
  */
 public interface ISender {
 
-    public void sendMessage(String message);
+    public void sendAtom(String message);
+
+    public void sendStructure(String structure);
+
+    public void sendString(String string);
 
 }

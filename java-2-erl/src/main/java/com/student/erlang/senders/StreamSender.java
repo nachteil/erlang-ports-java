@@ -6,7 +6,17 @@ package com.student.erlang.senders;
 public class StreamSender implements ISender {
 
     @Override
-    public void sendMessage(String message) {
+    public void sendAtom(String message) {
+
+    }
+
+    @Override
+    public void sendStructure(String structure) {
+
+    }
+
+    @Override
+    public void sendString(String string) {
 
     }
 }
