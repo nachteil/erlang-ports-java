@@ -7,6 +7,7 @@ import com.student.erlang.senders.ISender;
 import com.student.erlang.senders.LineSender;
 import com.student.erlang.senders.PacketSender;
 
+import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Random;
 
@@ -19,6 +20,8 @@ public class App {
 
         IListener listener = null;
         ISender sender = null;
+
+        FileWriter writer = new FileWriter("kek.lol");
 
         switch (args[0]) {
             case "line":
@@ -35,6 +38,9 @@ public class App {
 
         sender.sendMessage("No elo");
 
+        System.out.println("From sys out");
+        sender.sendMessage("From sender");
+
         Random random = new Random();
         int count = 0;
 
@@ -44,9 +50,12 @@ public class App {
 //            sender.sendMessage(msg);
 //        }
 
-        int k;
-        while((k = System.in.read()) != -1) {
-            sender.sendMessage(Integer.toString(k));
+        while(true) {
+            String msg = listener.listen();
+            writer.write(msg);
+            writer.write("\n");
+            writer.flush();
+            sender.sendMessage(msg);
         }
 
     }

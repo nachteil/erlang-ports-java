@@ -11,18 +11,13 @@
 
 -behaviour(gen_server).
 
--record(state, {java_port, java_node}).
-
 %% API
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, await_reply_line/1, start_link/1, writeToEcho/1, line_loop/1]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3, await_reply_line/1, start_link/1, writeToEcho/1, line_loop/1, getPort/0, stopMe/0, changeCode/1]).
 
 writeToEcho(Message) ->
   %%gen_server:cast(javaProxyServer, {sendToEcho, Message}),
-  port_command(erlangPort, "omg"),
-  receive
-    Msg ->
-      io:format("Got mesg: ~p~n", [Msg])
-  end.
+  port_command(javka, Message),
+  port_command(javka, "\n").
 
 start_link(CommunicationType) ->
   gen_server:start_link({local, javaProxyServer}, javaProxyServer, CommunicationType, []).
@@ -31,88 +26,123 @@ init(CommunicationType) ->
   case os:find_executable("java") of
     false -> throw({error, java_not_in_path}) ;
     Java ->
-      ThisNode = atom_to_list(node()),
-      JavaNodeName =
-        case string:tokens(ThisNode, "@") of
-          [Name, Server] -> list_to_atom(Name ++ "_java@" ++ Server) ;
-          _Node -> throw({bad_node_name, node()})
-        end,
       register(erlangPort, self()),
       PortName = {spawn_executable, Java},
-      {Protocol, Arg} =
+      {Protocol, CommunicationTypeArgument} =
         case CommunicationType of
           line -> {{line,1024}, "line"} ;
           packet -> {{packet, 4}, "packet"} ;
           stream -> {stream, "stream"}
         end,
       PortSettings = [Protocol, stderr_to_stdout,
-        {args, ["-jar", "priv/java-2-erl.jar", Arg,  ThisNode, JavaNodeName, erlang:get_cookie()]} ],
+        {args, ["-jar", "priv/java-2-erl.jar", CommunicationTypeArgument]}],
       Port = erlang:open_port(PortName, PortSettings),
       register(javka, Port),
       case CommunicationType of
-        line -> await_reply_line(#state{java_port = Port, java_node = JavaNodeName}) ;
-        packet -> await_reply_packet(#state{java_port = Port, java_node = JavaNodeName})
+        line -> await_reply_line(Port) ;
+        packet -> await_reply_packet(Port)
       end
   end.
 
-handle_call(_, _, _) ->
-  erlang:error(not_implemented).
+getPort()->
+  X = gen_server:call(var_server,{getPort}).
 
-handle_cast(Request, State) ->
-  case Request of
-    {sendToEcho, Msg} ->
-      State#state.java_port ! Msg, port_command(State#state.java_port, Msg) ;
-    {hash, Msg} ->
-      State#state.java_port ! {hash,Msg}
-  end.
+stopMe() ->
+  gen_server:cast(var_server,stop).
 
-handle_info(Info, State) ->
-  io:format("javaProxyServer: Got info to handle: ~p~n", [Info]),
-  {noreply, State}.
+changeCode(Name) ->
+  ok = gen_server:call(var_server,{change,Name}).
 
-terminate(_, _) ->
+handle_call({getPort}, _From, Value) ->
+  {noreply, Value, Value};
+
+handle_call({change,Name},_From,Value) ->
+  io:format("sending msg to port ~p~n",[Value]),
+  Value  ! {self(), {command, "{msg,{change}}."}},
+  {reply, ok,Value}.
+
+handle_cast(ready, Value) ->
+  io:format("Java is ready for work!"),
+  {noreply,Value};
+
+handle_cast({wrong, What}, Value) ->
+  io:format("Java recevied wrong data ~p~n",[What]),{noreply,Value};
+
+handle_cast(notready, Value) ->
+  {stop, "Java is not responding properly", []};
+
+handle_cast(stop,Value)->
+  Value ! {command,"stop."},
+  {stop, normal, shutdown_ok, Value}.
+
+handle_info(Info, Port) ->
+  case Info of
+    {Port, {data, {eol, IncomingMessage}}}->
+      {ok, Tokens, _} = erl_scan:string(IncomingMessage),   %%Parsing msg to tuple {msg,MSG}
+      {ok, Expr} = erl_parse:parse_term(Tokens),
+      case Expr of {msg,Msg} ->   %io:format("javaProxyServer: got Message from java: ~p~n", [Msg]),
+        case Msg of
+          {ok,ready}    -> gen_server:cast(var_server, ready);
+          {ok,Z}        -> gen_server:cast(var_server, Z);
+          {wrong,What}  -> gen_server:cast(var_server, {wrong, What});
+          _             -> gen_server:cast(var_server, notready)
+        end;
+        U ->
+          io:format("javaProxyServer: got uknown format message from java: ~p~n", [U]),
+          gen_server:cast(var_server,notready)
+      end;
+    _->true end,
+  {noreply, Port}.
+
+terminate(_, Value) ->
+  io:format("Stoping server."),
+  port_close(Value),
   ok.
 
 code_change(_, _, _) ->
   erlang:error(not_implemented).
 
-line_loop(State = #state{java_port = Port}) ->
+line_loop(Port) ->
   receive
     {Port, {data, {eol, Message}}} ->
-      io:format("~p~n", [Message]),
-      line_loop(State),
-      {ok, State}
-  end.
-
-await_reply_line(State = #state{java_port = Port}) ->
-  receive
-    {Port, {data, {eol, "No elo"}}} ->
-      io:format("javaProxyServer: Java node confirmed ready~n"),
-      line_loop(State),
-      {ok, State} ;
+      io:format("Line mesg: ~p~n", [Message]),
+      line_loop(Port),
+      {ok, Port} ;
 
     Info ->
-      case handle_info(Info, State) of
+      case handle_info(Info, Port) of
         {noreply, NewState} ->
-          await_reply_line(NewState);
+          line_loop(NewState);
         {stop, Reason, _NewState} ->
           {stop, Reason}
       end
   end.
 
-await_reply_packet(State = #state{java_port = Port}) ->
+await_reply_line(Port) ->
   receive
+    {Port, {data, {eol, "No elo"}}} ->
+      io:format("javaProxyServer: Java node confirmed ready~n"),
+      {ok, Port} ;
+    Info ->
+      case handle_info(Info, Port) of
+        {noreply, NewState} ->
+          {ok, NewState} ;
+        {stop, Reason, _NewState} ->
+          {stop, Reason}
+      end
+  end.
+
+await_reply_packet(Port) ->
+  receive
+    {Port, {data, {eol, "No elo"}}} ->
+      io:format("javaProxyServer: Java node confirmed ready~n"),
+      {ok, Port} ;
 
     Info ->
-      case handle_info(Info, State) of
+      case handle_info(Info, Port) of
         {noreply, NewState} ->
           await_reply_packet(NewState);
         {stop, Reason, _NewState} ->
           {stop, Reason}
-      end ;
-
-    {Port, {data, {eol, "No elo"}}} ->
-      io:format("javaProxyServer: Java node confirmed ready~n"),
-      {ok, State}
-
+      end
   end.

@@ -1,16 +1,22 @@
 package com.student.erlang.listeners;
 
-import java.util.Scanner;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 /**
  * Created by yorg on 20.01.15.
  */
 public class LineListener implements IListener{
 
-    Scanner scanner = new Scanner(System.in);
+    BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 
     @Override
     public String listen() {
-        return scanner.nextLine();
+        try {
+            return reader.readLine();
+        } catch (IOException e) {
+        }
+        return "";
     }
 }
