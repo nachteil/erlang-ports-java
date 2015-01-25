@@ -16,8 +16,7 @@
 
 writeToEcho(Message) ->
   %%gen_server:cast(javaProxyServer, {sendToEcho, Message}),
-  port_command(javka, Message),
-  port_command(javka, "\n").
+  gen_server:cast(erlangPort, {echo, Message}).
 
 start_link(CommunicationType) ->
   gen_server:start_link({local, javaProxyServer}, javaProxyServer, CommunicationType, []).
@@ -45,13 +44,13 @@ init(CommunicationType) ->
   end.
 
 getPort()->
-  X = gen_server:call(var_server,{getPort}).
+  X = gen_server:call(javaProxyServer,{getPort}).
 
 stopMe() ->
-  gen_server:cast(var_server,stop).
+  gen_server:cast(javaProxyServer,stop).
 
 changeCode(Name) ->
-  ok = gen_server:call(var_server,{change,Name}).
+  ok = gen_server:call(javaProxyServer,{change,Name}).
 
 handle_call({getPort}, _From, Value) ->
   {noreply, Value, Value};
@@ -71,27 +70,33 @@ handle_cast({wrong, What}, Value) ->
 handle_cast(notready, Value) ->
   {stop, "Java is not responding properly", []};
 
+handle_cast({echo, Mesg}, Value) ->
+  port_command(Value, Mesg) ;
+
 handle_cast(stop,Value)->
   Value ! {command,"stop."},
   {stop, normal, shutdown_ok, Value}.
 
 handle_info(Info, Port) ->
+  io:format("I'm handling info: ~p~n", [Info]),
   case Info of
     {Port, {data, {eol, IncomingMessage}}}->
       {ok, Tokens, _} = erl_scan:string(IncomingMessage),   %%Parsing msg to tuple {msg,MSG}
       {ok, Expr} = erl_parse:parse_term(Tokens),
-      case Expr of {msg,Msg} ->   %io:format("javaProxyServer: got Message from java: ~p~n", [Msg]),
-        case Msg of
-          {ok,ready}    -> gen_server:cast(var_server, ready);
-          {ok,Z}        -> gen_server:cast(var_server, Z);
-          {wrong,What}  -> gen_server:cast(var_server, {wrong, What});
-          _             -> gen_server:cast(var_server, notready)
-        end;
+      case Expr of
+        {msg,Msg} ->   %io:format("javaProxyServer: got Message from java: ~p~n", [Msg]),
+          case Msg of
+            {ok,ready}    -> gen_server:cast(javaProxyServer, ready);
+            {ok,Z}        -> gen_server:cast(javaProxyServer, Z);
+            {wrong,What}  -> gen_server:cast(javaProxyServer, {wrong, What});
+            _             -> gen_server:cast(javaProxyServer, notready)
+          end;
         U ->
           io:format("javaProxyServer: got uknown format message from java: ~p~n", [U]),
-          gen_server:cast(var_server,notready)
+          gen_server:cast(javaProxyServer,notready)
       end;
-    _->true end,
+    _ -> true
+  end,
   {noreply, Port}.
 
 terminate(_, Value) ->
@@ -122,7 +127,9 @@ await_reply_line(Port) ->
   receive
     {Port, {data, {eol, "No elo"}}} ->
       io:format("javaProxyServer: Java node confirmed ready~n"),
+      io:format("~p~n", [erlang:whereis(javka)]),
       {ok, Port} ;
+
     Info ->
       case handle_info(Info, Port) of
         {noreply, NewState} ->
